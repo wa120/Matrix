@@ -6,6 +6,8 @@ using namespace std;
 using namespace cv;
 
 float* circshift(const cv::Mat &patch, int x_rot, int y_rot);
+inline Matrix mat_operator_mat(const Matrix& m1, const Matrix& m2, void(*op)(const float& m_ptr, const float& ptr, float& result_ptr));
+inline Matrix mat_operator_num(const Matrix& m1, const float& num, void(*op)(const float& m_ptr, const float& ptr, float& result_ptr));
 
 Matrix::Matrix(const int& width, const int& height)
 	:width(width),height(height), channel(1),tensor(1),
@@ -26,11 +28,28 @@ Matrix::Matrix(const int& width, const int& height, const int& channel, const in
 {
 }
 
-void Matrix::dft()
+void Matrix::fft()
 {
 }
-void Matrix::idft()
+void Matrix::ifft()
 {
+	Mat complexMat(width, height, CV_32FC2);
+	Mat real_result(width, height, CV_32FC1);
+	Mat result();
+	for (int i = 0; i < tensor; i++)
+	{
+		float *complex_ptr = complexMat.ptr<float>(0);
+		float *data_ptr = data + 2*i;
+		for (int i = 0; i < area; i++)
+		{
+			*complex_ptr = *data_ptr;		complex_ptr++;
+			*complex_ptr = *(data_ptr + 1);	complex_ptr++;
+			data_ptr += tensor;
+		}
+		cv::dft(complexMat, real_result, cv::DFT_INVERSE | cv::DFT_REAL_OUTPUT | cv::DFT_SCALE);
+
+
+	}
 }
 Matrix Matrix::correlation()
 {
@@ -40,6 +59,49 @@ Matrix Matrix::correlation(const Matrix& m)
 }
 Matrix Matrix::gaussianCorrelation(const Matrix& m, float sigma)
 {
+	Matrix correlationMat = (data != m.data) ? *this*m: magnitude();
+
+	float this_square_norm = calcSumSquareNorm();
+	float m_square_norm = (data!=m.data)?m.calcSumSquareNorm():this_square_norm;
+
+	correlationMat = correlationMat.idft();
+		float xf_sqr_norm = xf.sqr_norm();
+	float yf_sqr_norm = auto_correlation ? xf_sqr_norm : yf.sqr_norm();
+
+	ComplexMat xyf = auto_correlation ? xf.sqr_mag() : xf * yf.conj();
+
+	//ifft2 and sum over 3rd dimension, we dont care about individual channels
+	cv::Mat xy_sum(xf.rows, xf.cols, CV_32FC1);
+	xy_sum.setTo(0);
+	cv::Mat ifft2_res = ifft2(xyf);
+	for (int y = 0; y < xf.rows; ++y) {
+		float * row_ptr = ifft2_res.ptr<float>(y);
+		float * row_ptr_sum = xy_sum.ptr<float>(y);
+		for (int x = 0; x < xf.cols; ++x) {
+			row_ptr_sum[x] = std::accumulate((row_ptr + x*ifft2_res.channels()), (row_ptr + x*ifft2_res.channels() + ifft2_res.channels()), 0.f);
+		}
+	}
+
+	float numel_xf_inv = 1.f / (xf.cols * xf.rows * xf.n_channels);
+	cv::Mat tmp;
+	cv::exp(-1.f / (sigma * sigma) * cv::max((xf_sqr_norm + yf_sqr_norm - 2 * xy_sum) * numel_xf_inv, 0), tmp);
+}
+Matrix Matrix::reduceTensor()
+{
+	Matrix result(width,height,channel,1);
+	float *result_ptr = result.data;
+	float *data_ptr=data;
+
+	for (int i = 0; i < tensor_area; i++)
+	{
+		float *result_ptr1 = result_ptr;
+		for (int k = 0; k < channel; k++)
+		{
+			*result_ptr += *data_ptr;	result_ptr++;	data_ptr++;
+		}
+	}
+	
+	return result;
 }
 void Matrix::createCosineWindow()
 {
@@ -111,22 +173,7 @@ Matrix Matrix::phase()
 	}
 	return result;
 }
-Matrix Matrix::conjunction()
-{
-	Matrix result(width, height, 2, tensor);
-	float *result_ptr = result.data;
-	const float *ptr = data;
 
-	if (channel == 2)
-	{
-		for (int i = 0; i < tensor_area; i++)
-		{
-			*result_ptr =  *ptr;	ptr++;	result_ptr++;
-			*result_ptr = -*ptr;	ptr++;	result_ptr++;
-		}
-	}
-	return result;
-}
 void Matrix::runingAvage(Matrix& m, const float& factor)
 {
 	*this = *this*(1 - factor) + m * factor;
@@ -137,70 +184,121 @@ void Matrix::show()
 }
 Matrix Matrix::operator +(const Matrix& m)
 {
-	return mat_operator_mat([](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr + ptr; }, m.data);		
+	return mat_operator_mat(*this,m,[](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr + ptr; });		
 }
 Matrix Matrix::operator -(const Matrix& m)
 {
-	return mat_operator_mat([](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr - ptr; }, m.data);
+	return mat_operator_mat(*this, m, [](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr - ptr; });
 }
 Matrix Matrix::operator *(const Matrix& m)
 {
-	return mat_operator_mat([](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr * ptr; }, m.data);
+	return mat_operator_mat(*this, m, [](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr * ptr; });
 }
 Matrix Matrix::operator /(const Matrix& m)
 {
-	return mat_operator_mat([](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr / ptr; }, m.data);
+	return mat_operator_mat(*this, m, [](const float& m_ptr, const float& ptr, float& result_ptr) {result_ptr = m_ptr / ptr; });
 }
+Matrix Matrix::operator ~()
+{
+	Matrix result(width, height, 2, tensor);
+	float *result_ptr = result.data;
+	const float *ptr = data;
 
+	if (channel == 2)
+	{
+		for (int i = 0; i < tensor_area; i++)
+		{
+			*result_ptr = *ptr;	ptr++;	result_ptr++;
+			*result_ptr = -*ptr;	ptr++;	result_ptr++;
+		}
+	}
+	return result;
+}
+Matrix Matrix::operator =(const Matrix& m)
+{
+	if (data != m.data)
+	{
+		delete data;
+		data = m.data;
+		width = m.width;
+		height = m.height;
+		area = m.area;
+		channel = m.channel;
+		tensor = m.tensor;
+		tensor_area = m.tensor_area;
+		total = m.total;
+	}
+}
 Matrix Matrix::operator +(const float& num)
 {
-	return mat_operator_num([](const float& num, const float& ptr, float& result_ptr) {result_ptr = num + ptr; }, num);
+	return mat_operator_num(*this, num, [](const float& num, const float& ptr, float& result_ptr) {result_ptr = num + ptr; });
 }
 Matrix Matrix::operator -(const float& num)
 {
-	return mat_operator_num([](const float& num, const float& ptr, float& result_ptr) {result_ptr = num - ptr; }, num);
+	return mat_operator_num(*this, num, [](const float& num, const float& ptr, float& result_ptr) {result_ptr = num - ptr; });
 }
 Matrix Matrix::operator *(const float& num)
 {
-	return mat_operator_num([](const float& num, const float& ptr, float& result_ptr) {result_ptr = num * ptr; }, num);
+	return mat_operator_num(*this, num, [](const float& num, const float& ptr, float& result_ptr) {result_ptr = num * ptr; });
 }
 Matrix Matrix::operator /(const float& num)
 {
-	return mat_operator_num([](const float& num, const float& ptr, float& result_ptr) {result_ptr = num / ptr; }, num);
+	return mat_operator_num(*this, num, [](const float& num, const float& ptr, float& result_ptr) {result_ptr = num / ptr; });
 }
-inline Matrix Matrix::mat_operator_mat(void (*op)(const float& m_ptr, const float& ptr,float& result_ptr),const float* m_ptr)
+inline Matrix mat_operator_mat(const Matrix& m1,const Matrix& m2,void (*op)(const float& m_ptr, const float& ptr,float& result_ptr))
 {
-	Matrix result(width, height, channel, tensor);
+	Matrix result(m1.width, m1.height, m1.channel, m1.tensor);
 	float *result_ptr = result.data;
-	const float *ptr = data;
-
-	for (int i = 0; i < total; i++)
+	
+	const float *m1_ptr = m1.data;
+	const float *m2_ptr = m2.data;
+	if (m2.channel == 1 && m2.tensor == 1)
 	{
-		op(*m_ptr, *ptr, *result_ptr);
-		ptr++;	m_ptr++;	result_ptr++;
+		int tensor_area = m1.tensor_area;
+		int channel = m1.channel;
+		for (int i = 0; i < tensor_area; i++)
+		{
+			for (int j = 0; j < channel; j++)
+			{
+				op(*m1_ptr, *m2_ptr, *result_ptr);
+				m1_ptr++;	result_ptr++;
+			}
+			m2_ptr++;
+		}
+	}
+	else
+	{	
+		int total = m1.total;
+		for (int i = 0; i < total; i++)
+		{
+			op(*m1_ptr, *m2_ptr, *result_ptr);
+			m1_ptr++;	m2_ptr++;	result_ptr++;
+		}
 	}
 	return result;
 }
-inline Matrix Matrix::mat_operator_num(void(*op)(const float& m_ptr, const float& ptr, float& result_ptr), const float& num)
+inline Matrix mat_operator_num(const Matrix& m1, const float& num,void(*op)(const float& m_ptr, const float& ptr, float& result_ptr))
 {
-	Matrix result(width, height, channel, tensor);
+	Matrix result(m1.width, m1.height, m1.channel, m1.tensor);
 	float *result_ptr = result.data;
-	const float *ptr = data;
+	int total = m1.total;
+	float *m1_ptr = m1.data;
 
 	for (int i = 0; i < total; i++)
 	{
-		op(num, *ptr, *result_ptr);
-		ptr++;		result_ptr++;
+		op(num, *m1_ptr, *result_ptr);
+		m1_ptr++;		result_ptr++;
 	}
 	return result;
 }
-float Matrix::calcSunSquareNorm()
+float Matrix::calcSumSquareNorm() const
 {
 	float sum_sqr_norm = 0;
-	const float *ptr = data;
+	const float *ptr = (const float *)data;
 	for (int i = 0; i<total; i++)
+	{
 		sum_sqr_norm += *ptr**ptr; ptr++;
-
+	}
 	return sum_sqr_norm / static_cast<float>(area);
 }
 

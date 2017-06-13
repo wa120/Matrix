@@ -1,6 +1,4 @@
-#pragma once
 #include <iostream>
-
 
 class Matrix
 {
@@ -24,16 +22,16 @@ public:
 	Matrix correlation();
 	Matrix correlation(const Matrix& m);
 	Matrix gaussianCorrelation(const Matrix& m, float sigma);
+	Matrix reduceTensor();
 
 	Matrix magnitude();
 	Matrix phase();
-	Matrix conjunction();
 
-	float calcSunSquareNorm();
+	float calcSumSquareNorm() const;
 	void runingAvage(Matrix& m, const float& factor);
 
-	void dft();
-	void idft();
+	void fft();
+	void ifft();
 
 	void show();
 
@@ -41,6 +39,9 @@ public:
 	Matrix operator -(const Matrix& m);
 	Matrix operator *(const Matrix& m);
 	Matrix operator /(const Matrix& m);
+	Matrix operator =(const Matrix& m);
+	Matrix operator ~();
+	
 
 	Matrix operator +(const float& m);
 	Matrix operator -(const float& m);
@@ -51,6 +52,5 @@ public:
 	~Matrix();
 
 private:
-	Matrix mat_operator_mat(void(*op)(const float& m_ptr, const float& ptr, float& result_ptr), const float* m_ptr);
-	Matrix mat_operator_num(void(*op)(const float& m_ptr, const float& ptr, float& result_ptr), const float& num);
+	
 };
