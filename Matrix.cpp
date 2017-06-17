@@ -317,7 +317,7 @@ Matrix Matrix::phase()
 			__m128 *_result_ptr = (__m128 *)result_ptr;
 
 			int j = 0;
-			for (; j < align_area; j++)
+			for (; j < align_area; j+=4)
 			{
 				*_result_ptr = ATAN(DIV(*_ptr2, *_ptr1));
 				_result_ptr++;	_ptr1++;	_ptr2++;
@@ -557,13 +557,29 @@ Matrix mat_operator_num(const Matrix& m1, const float& num,
 }
 float Matrix::calcSumSquareNorm() const
 {
-	float sum_sqr_norm = 0;
+	float result = 0;
 	const float *ptr = (const float *)data;
-	for (int i = 0; i<total; i++)
+	__m128 _result;
+	__m128 *_ptr = (__m128 *) ptr;
+	int i = 0;
+	for (; i<align_total; i+=4)
 	{
-		sum_sqr_norm += *ptr**ptr; ptr++;
+		_result = ADD(MUL(*_ptr,*_ptr),_result); 
+		_ptr++;
 	}
-	return sum_sqr_norm / static_cast<float>(area);
+	ptr = (float *)_ptr;
+	float* result_ptr = (float *)&_result;
+	
+	for (int i = 0; i < 4; i++)
+	{
+		result += *result_ptr;	result_ptr++;
+	}		
+	for (; i < total; i++)
+	{
+		result += *ptr;
+		ptr++;
+	}
+	return result / area;
 }
 
 
