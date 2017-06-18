@@ -23,13 +23,15 @@ public:
 
 	Matrix createGaussianKernel(const float& sigma);
 	Matrix createCosineWindow();
+	Matrix setRawImage(const uchar *raw_data);
+	Matrix setRawImage(const float *raw_data);
 
 	Matrix correlation();
 	Matrix correlation(const Matrix& m);
 	Matrix gaussianCorrelation(const Matrix& m, float sigma);
 	Matrix reduceTensor();
 
-	void gradient(Matrix& m, Matrix& o);
+	void gradient(Matrix& m, Matrix& o, bool fullOrientation= true);
 	Matrix fhog();
 	Matrix magnitude();
 	Matrix phase();
@@ -42,6 +44,7 @@ public:
 
 	Matrix clone();
 	Matrix clone(const int& x, const int& y, const int& w,const int& h, const bool& paddingAlignment);
+	Matrix transpose();
 
 	Matrix softMax(const float& compare_val,const float& data);
 	Matrix exp();
